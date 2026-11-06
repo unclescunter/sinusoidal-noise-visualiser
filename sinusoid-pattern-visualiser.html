@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sinusoid Field — OBS Background Generator</title>
+<style>
+  :root{
+    --paper:#eef1f4;
+    --grid:#dbe2e9;
+    --ink:#1d2a38;
+    --ink-soft:#5a6b7d;
+    --panel:#ffffff;
+    --line:#c6d0da;
+    --accent:#c2571f;
+    --accent-soft:#f4dfd2;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+      var(--paper);
+    background-size:24px 24px,24px 24px,auto;
+    min-height:100vh;
+    padding:28px 20px 60px;
+  }
+  header{max-width:1240px;margin:0 auto 22px}
+  h1{font-size:1.5rem;letter-spacing:.01em;font-weight:650}
+  h1 .fx{color:var(--accent);font-family:var(--mono);font-weight:500}
+  header p{color:var(--ink-soft);font-size:.9rem;margin-top:4px;max-width:70ch}
+
+  .layout{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px}
+  @media (max-width:1000px){.layout{grid-template-columns:1fr}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+  .panel h2{
+    font-family:var(--mono);font-size:.72rem;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-soft);margin-bottom:10px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .panel h2::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .stage{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .canvas-wrap{position:relative;display:flex;justify-content:center;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:16px;overflow:auto}
+  #view{border:1px solid var(--ink);cursor:grab;touch-action:none;max-width:100%;height:auto}
+  #view.dragging{cursor:grabbing}
+
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+  input[type=number],input[type=text]{
+    font-family:var(--mono);font-size:.85rem;padding:6px 8px;width:92px;
+    border:1px solid var(--line);border-radius:5px;background:#fbfcfd;color:var(--ink)}
+  input[type=text]{width:130px}
+  input[type=color]{width:44px;height:32px;padding:2px;border:1px solid var(--line);border-radius:5px;background:#fbfcfd;cursor:pointer}
+  select{font-family:var(--mono);font-size:.85rem;padding:6px 8px;border:1px solid var(--line);border-radius:5px;background:#fbfcfd;color:var(--ink);cursor:pointer}
+  input[type=range]{width:150px;accent-color:var(--accent)}
+  input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .check{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.78rem;color:var(--ink);padding:7px 0}
+  .check input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
+  button{
+    font-family:var(--mono);font-size:.8rem;padding:8px 14px;border-radius:5px;cursor:pointer;
+    border:1px solid var(--ink);background:var(--panel);color:var(--ink);transition:background .12s}
+  button:hover{background:var(--accent-soft)}
+  button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button.primary:hover{background:var(--accent);border-color:var(--accent)}
+  button:disabled{opacity:.45;cursor:default}
+
+  /* colour stop swatch list */
+  .stops{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .stop{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .stop .idx{font-family:var(--mono);font-size:.63rem;color:var(--ink-soft);white-space:nowrap}
+  .stop .rm{
+    position:absolute;top:12px;right:-6px;width:16px;height:16px;padding:0;line-height:1;
+    border-radius:50%;font-size:.65rem;border:1px solid var(--ink);background:#fff;z-index:1}
+  .stop .rm:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+  #addStop{padding:6px 10px}
+
+  /* draggable gradient editor bar */
+  .gradedit{position:relative;margin:22px 8px 6px}
+  .gradbar{height:18px;border:1px solid var(--ink);border-radius:5px}
+  .gnode{
+    position:absolute;top:-8px;width:18px;height:34px;transform:translateX(-50%);
+    cursor:ew-resize;touch-action:none;z-index:2}
+  .gnode .head{
+    width:18px;height:18px;border-radius:50%;border:2px solid #fff;
+    outline:1.5px solid var(--ink);margin:0 auto;
+    box-shadow:0 1px 3px rgba(0,0,0,.35)}
+  .gnode .stem{width:2px;height:14px;background:var(--ink);margin:0 auto}
+  .gnode.active .head{outline:2.5px solid var(--accent)}
+  .gnode .pct{
+    position:absolute;top:-16px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:.62rem;color:var(--ink-soft);white-space:nowrap;
+    pointer-events:none}
+
+  /* distortion node palette */
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{
+    display:flex;align-items:center;gap:8px;padding:7px 12px 7px 8px;
+    border:1px dashed var(--ink);border-radius:6px;background:#fbfcfd;
+    cursor:grab;user-select:none;touch-action:none}
+  .chip:hover{background:var(--accent-soft)}
+  .chip .glyph{
+    width:22px;height:22px;border-radius:5px;background:var(--ink);color:#fff;
+    font-family:var(--mono);font-weight:700;font-size:.75rem;
+    display:flex;align-items:center;justify-content:center}
+  .chip .cname{font-family:var(--mono);font-size:.75rem}
+  .chip-ghost{
+    position:fixed;z-index:99;pointer-events:none;opacity:.85;
+    transform:translate(-50%,-50%)}
+
+  .matrix{font-family:var(--mono);font-size:.78rem;line-height:1.55;color:var(--ink);
+    background:#fbfcfd;border:1px solid var(--line);border-radius:6px;padding:10px 12px;overflow-x:auto;white-space:pre}
+  .matrix b{color:var(--accent);font-weight:600}
+  .hint{font-size:.78rem;color:var(--ink-soft);line-height:1.5;margin-top:8px}
+
+  .progress{height:8px;background:var(--paper);border:1px solid var(--line);border-radius:99px;overflow:hidden;margin-top:10px;display:none}
+  .progress .bar{height:100%;width:0%;background:var(--accent);transition:width .1s}
+  .status{font-family:var(--mono);font-size:.75rem;color:var(--ink-soft);margin-top:6px;min-height:1.2em}
+
+  .resultwrap{margin-top:12px;display:none}
+  .resultwrap video{width:100%;border:1px solid var(--ink);border-radius:6px;display:none}
+  .tiled{height:220px;border:1px solid var(--ink);border-radius:6px;background-repeat:repeat;background-position:top left;display:none}
+  .resultwrap p{font-size:.78rem;color:var(--ink-soft);margin-top:6px}
+  .resultwrap a{color:var(--accent);font-weight:600}
+  .side{display:flex;flex-direction:column;gap:18px}
+  .gpu-note{font-family:var(--mono);font-size:.7rem;color:var(--ink-soft);text-align:center;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Sinusoid Field <span class="fx">Σ sin(k·r + φ)</span></h1>
+  <p>Three carriers A, B, C form the columns of matrix <strong>M</strong>. Rows 1–2 of each column are the
+  cartesian wave numbers (x, y) set by dragging a dot; row 3 is its phase φ, set by rotating the dot's
+  direction needle through 0 → 2π. The wave value sweeps through an editable gradient of your colours,
+  and distortion nodes can be dropped on the canvas to warp the field. GPU-rendered at up to
+  1920 × 1080, exporting a smooth 60 fps looping WebM for OBS — or a GIF.</p>
+</header>
+
+<div class="layout">
+  <div class="stage">
+    <div class="canvas-wrap"><canvas id="view"></canvas></div>
+    <div class="gpu-note" id="gpuNote"></div>
+
+    <div class="panel">
+      <h2>Canvas</h2>
+      <div class="row">
+        <div class="field"><label for="w">Width px (max 3840)</label><input type="number" id="w" value="1280" min="40" max="3840" step="10"></div>
+        <div class="field"><label for="h">Height px (max 2160)</label><input type="number" id="h" value="720" min="40" max="2160" step="10"></div>
+        <div class="field"><label for="preset">Preset</label>
+          <select id="preset">
+            <option value="">Custom…</option>
+            <option value="1280x720">720p · 1280×720</option>
+            <option value="1920x1080">1080p · 1920×1080</option>
+            <option value="2560x1440">1440p · 2560×1440</option>
+            <option value="3840x2160">4K · 3840×2160</option>
+          </select>
+        </div>
+        <div class="field"><label for="seed">Seed</label><input type="text" id="seed" value="1234"></div>
+        <button class="primary" id="randomBtn">Random seed</button>
+        <button id="reseedBtn">Apply seed</button>
+        <div class="field"><label for="loopSec">Loop seconds</label><input type="number" id="loopSec" value="4" min="1" max="30" step="0.5"></div>
+        <button id="applySize">Apply size</button>
+        <button id="pauseBtn">Pause</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <div class="field" style="flex:1">
+          <label for="quality">Encoder bitrate — file size ↔ quality</label>
+          <input type="range" id="quality" min="4" max="40" step="1" value="16">
+        </div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="check"><input type="checkbox" id="tileSnap"> Tile mode — seamless edges: integer wave numbers only, radial blend &amp; distortions disabled</label>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="radial">Radial blend — plane waves ↔ ripples from dots</label>
+          <input type="range" id="radial" min="0" max="1" step="0.01" value="0.4">
+        </div>
+        <div class="field">
+          <label for="sharp">Edge sharpness — soft blur ↔ defined waves</label>
+          <input type="range" id="sharp" min="0" max="1" step="0.01" value="0">
+        </div>
+      </div>
+      <p class="hint">Drag a dot's <em>body</em> to move it (x, y wave numbers). Drag the <em>needle tip</em>
+      to rotate its phase. <strong>Edge sharpness</strong> narrows every colour transition — at 0 the
+      original soft gradient, at 1 crisp defined bands.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Distortion nodes — drag onto the canvas</h2>
+      <div class="chips" id="chips"></div>
+      <div class="row" style="margin-top:8px">
+        <label class="check"><input type="checkbox" id="mirrorSnapGrid"> Mirror: snap line position to grid</label>
+        <label class="check"><input type="checkbox" id="mirrorSnapAngle"> Mirror: snap angle to 5°</label>
+      </div>
+      <p class="hint">Drop a node on the preview to warp the field where it lands (up to 6 at once).
+      Drag a placed node's <em>centre</em> to move it, drag the small <em>handle on its dashed ring</em>
+      to grow or shrink its area of influence, and <em>double-click</em> a node to remove it.
+      The <strong>Mirror</strong> node is a line instead of a circle: it reflects the whole field across
+      itself — drag its centre to reposition the line and drag its <em>orange handle</em> to change the
+      angle. The snap toggles above constrain the mirror line to a grid and/or 5° angle steps; leave both
+      off for completely free placement. All distortions animate with the loop, so exports stay seamless.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Colours — gradient stops</h2>
+      <div class="stops" id="stops"></div>
+      <div class="gradedit" id="gradedit">
+        <div class="gradbar" id="gradbar"></div>
+      </div>
+      <p class="hint">The bar is the full 0–100% range of the wave value. Drag a node left or right to
+      change that colour's position and share of the blend — drag one past another to reorder the
+      colours. Adding a colour drops a new node into the widest gap. Pick colours in the swatch row,
+      which always mirrors left-to-right bar order; hover a swatch and hit × to remove it (minimum two).</p>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="panel">
+      <h2>Matrix M — columns A B C</h2>
+      <div class="matrix" id="matrixOut"></div>
+      <p class="hint">value = Σᵢ (1−ρ)·sin(2π(xᵢfx + yᵢfy) + φᵢ + t) + ρ·sin(2π‖(xᵢ,yᵢ)‖·rᵢ + φᵢ + t),
+      evaluated on distortion-warped coordinates, normalised, then mapped across the gradient stops
+      at their node positions with per-segment smoothstep width set by sharpness.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Export</h2>
+      <div class="row">
+        <button class="primary" id="webmBtn">Render WebM (perfect loop)</button>
+        <button id="gifBtn">Render GIF</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <div class="field"><label for="frames">GIF frames</label><input type="number" id="frames" value="36" min="8" max="120"></div>
+        <div class="field"><label for="delay">GIF delay ms</label><input type="number" id="delay" value="60" min="20" max="500" step="10"></div>
+      </div>
+      <div class="progress" id="prog"><div class="bar" id="progBar"></div></div>
+      <div class="status" id="status"></div>
+      <div class="resultwrap" id="resultwrap">
+        <video id="vidPrev" loop muted playsinline></video>
+        <div class="tiled" id="tiled" aria-label="Background preview of exported GIF"></div>
+        <p id="resultNote"></p>
+      </div>
+      <p class="hint">The WebM always captures exactly one full period of the sinusoidal interference at
+      60 fps — the point where every carrier's phase returns to its start, so the first and last frames
+      are identical and it loops seamlessly. The clip's length in seconds follows from
+      <strong>Loop seconds</strong> above (how long one period takes). In OBS add it as a
+      <strong>Media Source</strong> and tick <strong>Loop</strong>.</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+<script>
+(() => {
+"use strict";
+const TAU = Math.PI * 2;
+const MAXN = 7;
+const MAXC = 8;   // max gradient stops
+const MAXD = 6;   // max distortion nodes
+
+const view = document.getElementById('view');
+const vctx = view.getContext('2d');
+
+// ---------- WebGL pattern renderer ----------
+const glCan = document.createElement('canvas');
+const gl = glCan.getContext('webgl', {preserveDrawingBuffer:true, antialias:false})
+        || glCan.getContext('experimental-webgl', {preserveDrawingBuffer:true});
+const gpuNote = document.getElementById('gpuNote');
+if(!gl){
+  gpuNote.textContent = 'WebGL unavailable — this page needs GPU rendering.';
+  throw new Error('WebGL unavailable');
+}
+gpuNote.textContent = 'GPU rendering — full resolution, 60 fps';
+
+const VS = 'attribute vec2 aPos; void main(){ gl_Position = vec4(aPos,0.,1.); }';
+const FS = `
+precision highp float;
+uniform vec2 uRes;
+uniform vec3 uNx, uNy, uPh;    // per-dot wave numbers and phase (+t)
+uniform vec3 uU, uV;           // per-dot fractional positions
+uniform float uRho;            // radial blend
+uniform float uTile;           // 1 = tiling mode: only integer plane waves, no radial/distortion
+uniform float uEdgeW;          // half-width of each colour transition (sharpness)
+uniform float uT;              // loop phase 0..2pi
+uniform vec3 uCols[${MAXC}];   // gradient stop colours, sorted by position
+uniform float uPos[${MAXC}];   // gradient stop positions in [0,1], ascending
+uniform float uN;              // number of active stops (2..MAXC)
+uniform float uDN;             // number of distortion nodes
+uniform float uDType[${MAXD}]; // 0 swirl, 1 ripple, 2 turbulence, 3 pixelate, 4 mirror-line
+uniform vec2  uDPos[${MAXD}];  // node position (fractions); for mirror: a point on the line
+uniform float uDRad[${MAXD}];  // circular nodes: influence radius; mirror: line angle (radians)
+const float TAU = 6.28318530718;
+const float PI  = 3.14159265359;
+vec2 rot2(vec2 v, float a){ float c=cos(a),s=sin(a); return vec2(c*v.x-s*v.y, s*v.x+c*v.y); }
+float hash21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123); }
+float vnoise(vec2 p){
+  vec2 i=floor(p), fr=fract(p);
+  fr=fr*fr*(3.0-2.0*fr);
+  float a=hash21(i), b=hash21(i+vec2(1.,0.)), c=hash21(i+vec2(0.,1.)), d=hash21(i+vec2(1.,1.));
+  return mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y);
+}
+float field(float nx, float ny, float ph, float du, float dv, vec2 f, float aspect){
+  // Plane wave: with integer nx,ny this completes whole cycles across f in [0,1] => tiles.
+  float s = (1.0-uRho)*sin(TAU*(nx*f.x + ny*f.y) + ph);
+  // Radial ripple uses Euclidean distance, which is NOT spatially periodic, so it would
+  // break edge tiling. Suppress it entirely in tile mode; keep it otherwise.
+  if(uTile < 0.5){
+    float m = length(vec2(nx,ny));
+    vec2 d = vec2(f.x-du, (f.y-dv)*aspect);
+    s += uRho*sin(TAU*m*length(d) + ph);
+  }
+  return s;
+}
+void main(){
+  float aspect = uRes.y/uRes.x;
+  vec2 f = vec2(gl_FragCoord.x/uRes.x, 1.0 - gl_FragCoord.y/uRes.y);
+  // ---- distortion pass: warp the sampling coordinates node by node ----
+  // Distortions use non-periodic coordinates, so they break edge tiling — skip in tile mode.
+  for(int i=0;i<${MAXD};i++){
+    if(uTile < 0.5 && float(i)<uDN){
+      vec2 c = uDPos[i];
+      float ty = uDType[i];
+      if(ty>3.5){
+        // MIRROR LINE: reflect one half-plane onto the other across a full-canvas line
+        // through point c at angle uDRad[i]. Work in aspect-corrected space so the line
+        // looks straight on screen; the line normal is perpendicular to its direction.
+        float ang = uDRad[i];
+        vec2 nrm = vec2(-sin(ang), cos(ang));            // unit normal to the line
+        vec2 fa  = vec2(f.x, f.y*aspect);
+        vec2 ca  = vec2(c.x, c.y*aspect);
+        float sd = dot(fa-ca, nrm);                      // signed distance to the line
+        if(sd > 0.0){                                    // positive side is reflected onto negative
+          fa -= 2.0*sd*nrm;
+          f = vec2(fa.x, fa.y/aspect);
+        }
+        continue;                                        // no radius/falloff for a mirror
+      }
+      vec2 d = vec2(f.x-c.x, (f.y-c.y)*aspect);
+      float r = length(d);
+      float R = max(uDRad[i], 1e-4);
+      float fall = 1.0 - smoothstep(0.0, R, r);
+      if(fall>0.0){
+        if(ty<0.5){
+          // SWIRL: rotate coordinates around the node, breathing with the loop
+          float a = fall*fall*2.6*(0.7+0.3*sin(uT+float(i)*1.7));
+          d = rot2(d,a);
+          f = vec2(c.x + d.x, c.y + d.y/aspect);
+        } else if(ty<1.5){
+          // RIPPLE: concentric displacement waves travelling outward
+          float w = sin(TAU*(r/R)*3.0 - uT)*0.022*fall;
+          vec2 n = r>1e-5 ? d/r : vec2(0.0,0.0);
+          f += vec2(n.x*w, n.y*w/aspect);
+        } else if(ty<2.5){
+          // TURBULENCE: value-noise jitter, sampled on a cyclic path so it loops
+          vec2 cyc = vec2(cos(uT), sin(uT))*0.6;
+          float n1 = vnoise(f*15.0+cyc)-0.5;
+          float n2 = vnoise(f*15.0+cyc+vec2(37.2,17.9))-0.5;
+          f += vec2(n1, n2/aspect)*0.055*fall;
+        } else {
+          // PIXELATE: quantise coordinates into a mosaic within the ring
+          float cell = max(R/7.0, 0.004);
+          vec2 fa = vec2(f.x, f.y*aspect);
+          vec2 q = (floor(fa/cell)+0.5)*cell;
+          vec2 qf = vec2(q.x, q.y/aspect);
+          f = mix(f, qf, fall);
+        }
+      }
+    }
+  }
+  // ---- carrier sum on the warped coordinates ----
+  float v = field(uNx.x,uNy.x,uPh.x,uU.x,uV.x,f,aspect)
+          + field(uNx.y,uNy.y,uPh.y,uU.y,uV.y,f,aspect)
+          + field(uNx.z,uNy.z,uPh.z,uU.z,uV.z,f,aspect);
+  float u = clamp(v/6.0+0.5, 0.0, 1.0);
+  // ---- gradient mapping across positioned stops ----
+  vec3 col = uCols[0];
+  for(int i=0;i<${MAXC-1};i++){
+    if(float(i) < uN-1.0){
+      float p0=uPos[i], p1=uPos[i+1];
+      if(u>=p0 && u<=p1){
+        float fr=(u-p0)/max(p1-p0,1e-5);
+        fr=smoothstep(0.5-uEdgeW, 0.5+uEdgeW, fr);
+        col=mix(uCols[i], uCols[i+1], fr);
+      }
+    }
+  }
+  for(int i=0;i<${MAXC};i++){
+    if(float(i)==uN-1.0 && u>uPos[i]) col=uCols[i];
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+function sh(type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+const glProg = gl.createProgram();
+gl.attachShader(glProg, sh(gl.VERTEX_SHADER,VS));
+gl.attachShader(glProg, sh(gl.FRAGMENT_SHADER,FS));
+gl.linkProgram(glProg); gl.useProgram(glProg);
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(glProg,'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+const U = {};
+for(const n of ['uRes','uNx','uNy','uPh','uU','uV','uRho','uTile','uEdgeW','uT','uCols','uPos','uN','uDN','uDType','uDPos','uDRad'])
+  U[n]=gl.getUniformLocation(glProg,n);
+
+// ---------- state ----------
+let W=1280, H=720;
+const LABELS=['A','B','C'];
+let dots=[], tileSnap=false, radialMix=0.4, sharpness=0, loopMs=4000;
+let stopId=0;
+let stops=[ {id:++stopId,color:'#12224e',pos:0}, {id:++stopId,color:'#f0a840',pos:1} ]; // kept sorted by pos
+
+// distortion node types
+const DTYPES=[
+  {key:0, glyph:'S', name:'Swirl',      desc:'twists the waves around itself'},
+  {key:1, glyph:'R', name:'Ripple',     desc:'concentric displacement waves'},
+  {key:2, glyph:'T', name:'Turbulence', desc:'noisy jitter of the field'},
+  {key:3, glyph:'P', name:'Pixelate',   desc:'mosaic cells inside the ring'},
+  {key:4, glyph:'M', name:'Mirror',     desc:'reflects the field across an adjustable line'},
+];
+// Circular nodes: {type,u,v,r} with r = influence radius (width fraction).
+// Mirror node:    {type:4,u,v,r} with r = line ANGLE in radians (u,v = a point on the line).
+let dnodes=[];
+let mirrorSnapGrid=false, mirrorSnapAngle=false;
+const GRID_STEP=1/12;   // mirror grid: 12 divisions across each axis
+
+function hashSeed(s){ let h=1779033703; for(let i=0;i<s.length;i++){h=Math.imul(h^s.charCodeAt(i),3432918353);h=h<<13|h>>>19;} return h>>>0; }
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function seedDots(str){
+  const rnd=mulberry32(hashSeed(str));
+  dots=LABELS.map(lb=>({label:lb,u:0.15+rnd()*0.7,v:0.15+rnd()*0.7,phase:rnd()*TAU}));
+}
+function waveNums(d){
+  let nx=(d.u-0.5)*2*MAXN, ny=(d.v-0.5)*2*MAXN;
+  if(tileSnap){ nx=Math.round(nx); ny=Math.round(ny); }
+  return [nx,ny];
+}
+function hexToRgbF(hx){ const n=parseInt(hx.slice(1),16); return [(n>>16&255)/255,(n>>8&255)/255,(n&255)/255]; }
+
+function resize(w,h){
+  W=w; H=h;
+  view.width=W; view.height=H;
+  glCan.width=W; glCan.height=H;
+  gl.viewport(0,0,W,H);
+}
+
+const colFlat=new Float32Array(MAXC*3);
+const posFlat=new Float32Array(MAXC);
+const dTypeFlat=new Float32Array(MAXD);
+const dPosFlat=new Float32Array(MAXD*2);
+const dRadFlat=new Float32Array(MAXD);
+function renderGL(t){
+  const nx=[],ny=[],ph=[],uu=[],vv=[];
+  for(const d of dots){ const [a,b]=waveNums(d); nx.push(a); ny.push(b); ph.push(d.phase+t); uu.push(d.u); vv.push(d.v); }
+  gl.uniform2f(U.uRes,W,H);
+  gl.uniform3fv(U.uNx,nx); gl.uniform3fv(U.uNy,ny); gl.uniform3fv(U.uPh,ph);
+  gl.uniform3fv(U.uU,uu); gl.uniform3fv(U.uV,vv);
+  gl.uniform1f(U.uRho,radialMix);
+  gl.uniform1f(U.uTile, tileSnap?1:0);
+  gl.uniform1f(U.uEdgeW, 0.5 - sharpness*0.49);
+  gl.uniform1f(U.uT, t);
+  colFlat.fill(0); posFlat.fill(1);
+  stops.forEach((s,i)=>{
+    const c=hexToRgbF(s.color);
+    colFlat[i*3]=c[0]; colFlat[i*3+1]=c[1]; colFlat[i*3+2]=c[2];
+    posFlat[i]=s.pos;
+  });
+  gl.uniform3fv(U.uCols,colFlat);
+  gl.uniform1fv(U.uPos,posFlat);
+  gl.uniform1f(U.uN,stops.length);
+  dTypeFlat.fill(0); dPosFlat.fill(0); dRadFlat.fill(0);
+  dnodes.forEach((n,i)=>{
+    dTypeFlat[i]=n.type;
+    dPosFlat[i*2]=n.u; dPosFlat[i*2+1]=n.v;
+    dRadFlat[i]=n.r;
+  });
+  gl.uniform1fv(U.uDType,dTypeFlat);
+  gl.uniform2fv(U.uDPos,dPosFlat);
+  gl.uniform1fv(U.uDRad,dRadFlat);
+  gl.uniform1f(U.uDN,dnodes.length);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+
+// ---------- distortion palette: drag chips onto the canvas ----------
+const chipsEl=document.getElementById('chips');
+DTYPES.forEach(dt=>{
+  const chip=document.createElement('div');
+  chip.className='chip';
+  chip.innerHTML='<span class="glyph">'+dt.glyph+'</span><span class="cname">'+dt.name+'</span>';
+  chip.title=dt.desc;
+  chip.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    const ghost=chip.cloneNode(true);
+    ghost.classList.add('chip-ghost');
+    document.body.appendChild(ghost);
+    const moveGhost=ev=>{ ghost.style.left=ev.clientX+'px'; ghost.style.top=ev.clientY+'px'; };
+    moveGhost(e);
+    chip.setPointerCapture(e.pointerId);
+    const move=ev=>moveGhost(ev);
+    const up=ev=>{
+      chip.removeEventListener('pointermove',move);
+      chip.removeEventListener('pointerup',up);
+      chip.removeEventListener('pointercancel',up);
+      ghost.remove();
+      const r=view.getBoundingClientRect();
+      if(ev.clientX>=r.left && ev.clientX<=r.right && ev.clientY>=r.top && ev.clientY<=r.bottom){
+        if(dnodes.length>=MAXD){
+          document.getElementById('status').textContent='Maximum of '+MAXD+' distortion nodes — remove one first (double-click it).';
+          return;
+        }
+        dnodes.push({
+          type:dt.key,
+          u:(ev.clientX-r.left)/r.width,
+          v:(ev.clientY-r.top)/r.height,
+          r: dt.key===4 ? 0 : 0.12   // mirror: r is the line ANGLE (start horizontal); else radius
+        });
+      }
+    };
+    chip.addEventListener('pointermove',move);
+    chip.addEventListener('pointerup',up);
+    chip.addEventListener('pointercancel',up);
+  });
+  chipsEl.appendChild(chip);
+});
+
+// ---------- gradient editor UI ----------
+const stopsEl=document.getElementById('stops'),
+      gradedit=document.getElementById('gradedit'),
+      gradbar=document.getElementById('gradbar');
+const nodeEls=new Map(); // stop.id -> node element
+
+function cssGradient(){
+  return 'linear-gradient(90deg,'+stops.map(s=>s.color+' '+(s.pos*100).toFixed(1)+'%').join(',')+')';
+}
+// Each colour's SHARE of the blend = the span it dominates, measured midpoint-to-midpoint
+// between neighbours (first runs from 0, last runs to 1). These always sum to 100%.
+function shares(){
+  const n=stops.length;
+  if(n===1) return [100];
+  const bounds=[0];
+  for(let i=0;i<n-1;i++) bounds.push((stops[i].pos+stops[i+1].pos)/2);
+  bounds.push(1);
+  const raw=stops.map((s,i)=>Math.max(0, bounds[i+1]-bounds[i]));
+  const total=raw.reduce((a,b)=>a+b,0)||1;
+  // convert to percentages that sum to exactly 100 (largest-remainder rounding)
+  const exact=raw.map(r=>r/total*100);
+  const floor=exact.map(x=>Math.floor(x));
+  let rem=100-floor.reduce((a,b)=>a+b,0);
+  const order=exact.map((x,i)=>[x-Math.floor(x),i]).sort((a,b)=>b[0]-a[0]);
+  for(let k=0;k<rem;k++) floor[order[k][1]]++;
+  return floor;
+}
+function sortStops(){
+  const before=stops.map(s=>s.id).join(',');
+  stops.sort((a,b)=>a.pos-b.pos);
+  return before!==stops.map(s=>s.id).join(',');
+}
+function updateBar(){
+  gradbar.style.background=cssGradient();
+  const sh=shares();
+  stops.forEach((s,i)=>{
+    const el=nodeEls.get(s.id);
+    if(!el) return;
+    el.style.left=(s.pos*100)+'%';
+    el.querySelector('.head').style.background=s.color;
+    el.querySelector('.pct').textContent=sh[i]+'%';   // share of blend, not position
+  });
+}
+function makeNode(s){
+  const el=document.createElement('div');
+  el.className='gnode';
+  el.innerHTML='<span class="pct"></span><div class="head"></div><div class="stem"></div>';
+  el.title='Drag to reposition';
+  el.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    el.classList.add('active');
+    el.setPointerCapture(e.pointerId);
+    const move=ev=>{
+      const r=gradbar.getBoundingClientRect();
+      s.pos=Math.min(1,Math.max(0,(ev.clientX-r.left)/r.width));
+      if(sortStops()) rebuildSwatches();
+      updateBar();
+    };
+    const up=ev=>{
+      el.classList.remove('active');
+      el.removeEventListener('pointermove',move);
+      el.removeEventListener('pointerup',up);
+      el.removeEventListener('pointercancel',up);
+    };
+    el.addEventListener('pointermove',move);
+    el.addEventListener('pointerup',up);
+    el.addEventListener('pointercancel',up);
+  });
+  gradedit.appendChild(el);
+  nodeEls.set(s.id,el);
+}
+function rebuildNodes(){
+  for(const el of nodeEls.values()) el.remove();
+  nodeEls.clear();
+  for(const s of stops) makeNode(s);
+  updateBar();
+}
+function rebuildSwatches(){
+  stopsEl.innerHTML='';
+  const sh=shares();
+  stops.forEach((s,i)=>{
+    const wrap=document.createElement('div'); wrap.className='stop';
+    const idx=document.createElement('span'); idx.className='idx';
+    idx.textContent=(i+1)+' · '+sh[i]+'%';
+    const inp=document.createElement('input'); inp.type='color'; inp.value=s.color;
+    inp.setAttribute('aria-label','Gradient colour '+(i+1));
+    inp.oninput=()=>{ s.color=inp.value; updateBar(); };
+    wrap.appendChild(idx); wrap.appendChild(inp);
+    if(stops.length>2){
+      const rm=document.createElement('button'); rm.className='rm'; rm.textContent='×';
+      rm.title='Remove this colour';
+      rm.onclick=()=>{
+        stops=stops.filter(x=>x.id!==s.id);
+        rebuildSwatches(); rebuildNodes();
+      };
+      wrap.appendChild(rm);
+    }
+    stopsEl.appendChild(wrap);
+  });
+  const add=document.createElement('button'); add.id='addStop'; add.textContent='+ Add colour';
+  add.disabled=stops.length>=MAXC;
+  add.onclick=()=>{
+    if(stops.length>=MAXC) return;
+    let bestPos=0.5, bestGap=-1, prev=0;
+    for(let i=0;i<=stops.length;i++){
+      const p=i<stops.length?stops[i].pos:1;
+      const gap=p-prev;
+      if(gap>bestGap){ bestGap=gap; bestPos=prev+gap/2; }
+      prev=p;
+    }
+    stops.push({id:++stopId,color:stops[stops.length-1].color,pos:bestPos});
+    sortStops();
+    rebuildSwatches(); rebuildNodes();
+  };
+  stopsEl.appendChild(add);
+}
+gradedit.addEventListener('pointerup',()=>rebuildSwatches());
+
+// ---------- overlay ----------
+const DOT_R=13, NEEDLE=28, ANGLE_HANDLE=70;
+function drawOverlay(){
+  // faint grid when placing a mirror line with grid-snap on, to show the snap points
+  if(mirrorSnapGrid && drag && drag.dnode && drag.dnode.type===4){
+    vctx.save();
+    vctx.strokeStyle='rgba(194,87,31,0.25)'; vctx.lineWidth=1;
+    for(let g=0; g<=1.0001; g+=GRID_STEP){
+      const gx=g*W, gy=g*H;
+      vctx.beginPath(); vctx.moveTo(gx,0); vctx.lineTo(gx,H); vctx.stroke();
+      vctx.beginPath(); vctx.moveTo(0,gy); vctx.lineTo(W,gy); vctx.stroke();
+    }
+    vctx.restore();
+  }
+  // distortion nodes first, under the carrier dots
+  for(const n of dnodes){
+    const x=n.u*W, y=n.v*H;
+    const dt=DTYPES[n.type];
+    const removing=n.offCanvas;
+    vctx.globalAlpha = removing?0.5:1;
+
+    if(n.type===4){
+      // MIRROR: draw the reflection line spanning the whole canvas at angle n.r
+      const ang=n.r;
+      const dx=Math.cos(ang), dy=Math.sin(ang);
+      const L=Math.hypot(W,H); // long enough to cross the canvas at any angle
+      if(!removing){
+        vctx.setLineDash([10,7]);
+        vctx.lineWidth=2; vctx.strokeStyle='rgba(255,255,255,0.95)';
+        vctx.beginPath(); vctx.moveTo(x-dx*L,y-dy*L); vctx.lineTo(x+dx*L,y+dy*L); vctx.stroke();
+        vctx.lineWidth=1; vctx.strokeStyle='rgba(29,42,56,0.85)';
+        vctx.beginPath(); vctx.moveTo(x-dx*L,y-dy*L); vctx.lineTo(x+dx*L,y+dy*L); vctx.stroke();
+        vctx.setLineDash([]);
+        // angle handle: a dot along the line, offset from centre
+        const hx=x+dx*ANGLE_HANDLE, hy=y+dy*ANGLE_HANDLE;
+        vctx.beginPath(); vctx.arc(hx,hy,6,0,TAU);
+        vctx.fillStyle='#c2571f'; vctx.fill();
+        vctx.strokeStyle='#ffffff'; vctx.lineWidth=1.5; vctx.stroke();
+      }
+    } else {
+      // circular nodes: dashed ring + resize handle
+      const rPx=n.r*W;
+      if(!removing){
+        vctx.setLineDash([6,5]);
+        vctx.lineWidth=1.5; vctx.strokeStyle='rgba(255,255,255,0.9)';
+        vctx.beginPath(); vctx.arc(x,y,rPx,0,TAU); vctx.stroke();
+        vctx.lineWidth=1; vctx.strokeStyle='rgba(29,42,56,0.8)';
+        vctx.beginPath(); vctx.arc(x,y,rPx,0,TAU); vctx.stroke();
+        vctx.setLineDash([]);
+        const hx=x+rPx*Math.SQRT1_2, hy=y-rPx*Math.SQRT1_2;
+        vctx.beginPath(); vctx.arc(hx,hy,5,0,TAU);
+        vctx.fillStyle='#c2571f'; vctx.fill();
+        vctx.strokeStyle='#ffffff'; vctx.lineWidth=1.5; vctx.stroke();
+      }
+    }
+
+    // square body with glyph — turns red when it will be removed on release
+    vctx.fillStyle = removing?'rgba(194,40,40,0.92)':'rgba(29,42,56,0.92)';
+    vctx.strokeStyle='#ffffff'; vctx.lineWidth=2;
+    const s=11;
+    vctx.beginPath();
+    vctx.rect(x-s,y-s,s*2,s*2);
+    vctx.fill(); vctx.stroke();
+    vctx.fillStyle='#ffffff'; vctx.font='700 12px ui-monospace,monospace';
+    vctx.textAlign='center'; vctx.textBaseline='middle';
+    vctx.fillText(removing?'\u00d7':dt.glyph,x,y+0.5);
+    vctx.globalAlpha=1;
+  }
+  for(const d of dots){
+    const x=d.u*W, y=d.v*H;
+    const tipX=x+Math.cos(d.phase)*NEEDLE, tipY=y+Math.sin(d.phase)*NEEDLE;
+    vctx.lineWidth=2; vctx.strokeStyle='#ffffff';
+    vctx.beginPath(); vctx.moveTo(x,y); vctx.lineTo(tipX,tipY); vctx.stroke();
+    vctx.lineWidth=1; vctx.strokeStyle='#1d2a38';
+    vctx.beginPath(); vctx.moveTo(x,y); vctx.lineTo(tipX,tipY); vctx.stroke();
+    vctx.beginPath(); vctx.arc(tipX,tipY,6,0,TAU);
+    vctx.fillStyle='#c2571f'; vctx.fill();
+    vctx.strokeStyle='#ffffff'; vctx.lineWidth=1.5; vctx.stroke();
+    vctx.beginPath(); vctx.arc(x,y,DOT_R,0,TAU);
+    vctx.fillStyle='rgba(255,255,255,0.92)'; vctx.fill();
+    vctx.strokeStyle='#1d2a38'; vctx.lineWidth=2; vctx.stroke();
+    vctx.fillStyle='#1d2a38'; vctx.font='700 12px ui-monospace,monospace';
+    vctx.textAlign='center'; vctx.textBaseline='middle';
+    vctx.fillText(d.label,x,y+0.5);
+  }
+}
+
+function fmt(n){ return (tileSnap?String(n):n.toFixed(2)).padStart(6,' '); }
+function updateMatrix(){
+  const cols=dots.map(waveNums);
+  document.getElementById('matrixOut').innerHTML =
+    '        <b>A</b>      <b>B</b>      <b>C</b>\n'+
+    'x  │'+cols.map(c=>fmt(c[0])).join(' ')+' │\n'+
+    'y  │'+cols.map(c=>fmt(c[1])).join(' ')+' │\n'+
+    'φ  │'+dots.map(d=>((d.phase/Math.PI).toFixed(2)+'π').padStart(6,' ')).join(' ')+' │';
+}
+
+// ---------- animation / recording clock ----------
+let paused=false, recording=null;
+function frame(now){
+  // The perfect-loop exporter drives rendering itself; the clock stays out of its way.
+  if(recording && recording.frameDriven){
+    requestAnimationFrame(frame);
+    return;
+  }
+  let t;
+  if(recording){
+    const el=now-recording.start;
+    // Stop one frame's-worth of time BEFORE the full period. The frame at t=2pi is
+    // identical to t=0, so capturing up to (but not including) it is what makes the
+    // loop close cleanly — capturing the full loopMs would duplicate the wrap frame.
+    const endMs = loopMs - 1000/recording.fps;
+    t=(el/loopMs)*TAU;
+    document.getElementById('progBar').style.width=Math.min(100,el/endMs*100).toFixed(0)+'%';
+    if(el>=endMs && !recording.stopped){
+      recording.stopped=true;
+      recording.recorder.stop();
+    }
+  }else{
+    t = paused ? frame.tHeld||0 : ((now%loopMs)/loopMs)*TAU;
+    if(!paused) frame.tHeld=t;
+  }
+  if(!recording || !recording.stopped) renderGL(t);
+  vctx.drawImage(glCan,0,0);
+  if(!recording) drawOverlay();
+  requestAnimationFrame(frame);
+}
+
+// ---------- interaction ----------
+let drag=null; // {dot,mode} | {dnode,mode:'move'|'size'}
+function canvasPos(e){
+  const r=view.getBoundingClientRect();
+  return [(e.clientX-r.left)*(W/r.width),(e.clientY-r.top)*(H/r.height)];
+}
+view.addEventListener('pointerdown',e=>{
+  if(recording) return;
+  const [mx,my]=canvasPos(e);
+  const scale=view.getBoundingClientRect().width/W;
+  const slack=Math.max(0,(1/scale-1)*6);
+  // carrier dots take priority (they're drawn on top)
+  for(const d of dots){
+    const x=d.u*W,y=d.v*H;
+    const tx=x+Math.cos(d.phase)*NEEDLE, ty=y+Math.sin(d.phase)*NEEDLE;
+    if(Math.hypot(mx-tx,my-ty)<=9+slack){ drag={dot:d,mode:'rotate'}; break; }
+    if(Math.hypot(mx-x,my-y)<=DOT_R+2+slack){ drag={dot:d,mode:'move'}; break; }
+  }
+  // then distortion nodes, newest first
+  if(!drag){
+    for(let i=dnodes.length-1;i>=0;i--){
+      const n=dnodes[i];
+      const x=n.u*W,y=n.v*H;
+      if(n.type===4){
+        // mirror: angle handle sits along the line; body is the centre square
+        const hx=x+Math.cos(n.r)*ANGLE_HANDLE, hy=y+Math.sin(n.r)*ANGLE_HANDLE;
+        if(Math.hypot(mx-hx,my-hy)<=10+slack){ drag={dnode:n,mode:'angle'}; break; }
+        if(Math.abs(mx-x)<=13+slack && Math.abs(my-y)<=13+slack){ drag={dnode:n,mode:'move'}; break; }
+      }else{
+        const rPx=n.r*W;
+        const hx=x+rPx*Math.SQRT1_2, hy=y-rPx*Math.SQRT1_2;
+        if(Math.hypot(mx-hx,my-hy)<=9+slack){ drag={dnode:n,mode:'size'}; break; }
+        if(Math.abs(mx-x)<=13+slack && Math.abs(my-y)<=13+slack){ drag={dnode:n,mode:'move'}; break; }
+      }
+    }
+  }
+  if(drag){ view.classList.add('dragging'); view.setPointerCapture(e.pointerId); }
+});
+view.addEventListener('pointermove',e=>{
+  if(!drag) return;
+  const [mx,my]=canvasPos(e);
+  if(drag.dot){
+    const d=drag.dot;
+    if(drag.mode==='move'){
+      d.u=Math.min(1,Math.max(0,mx/W));
+      d.v=Math.min(1,Math.max(0,my/H));
+    }else{
+      let a=Math.atan2(my-d.v*H,mx-d.u*W);
+      if(a<0)a+=TAU;
+      d.phase=a;
+    }
+    updateMatrix();
+  }else if(drag.dnode){
+    const n=drag.dnode;
+    const isMirror = n.type===4;
+    if(drag.mode==='move'){
+      // allow moving past the edges; if released outside, the node is removed
+      let u=mx/W, v=my/H;
+      if(isMirror && mirrorSnapGrid){                 // snap the line's through-point to a grid
+        u=Math.round(u/GRID_STEP)*GRID_STEP;
+        v=Math.round(v/GRID_STEP)*GRID_STEP;
+      }
+      n.u=u; n.v=v;
+      const margin=0.04;
+      n.offCanvas = (n.u<-margin || n.u>1+margin || n.v<-margin || n.v>1+margin);
+    }else if(drag.mode==='angle'){
+      // mirror line: rotate to point at the cursor
+      let a=Math.atan2(my-n.v*H, mx-n.u*W);
+      if(mirrorSnapAngle){                            // snap to 5° increments
+        const step=5*Math.PI/180;
+        a=Math.round(a/step)*step;
+      }
+      n.r=a;
+    }else{
+      n.r=Math.min(0.5,Math.max(0.03,Math.hypot(mx-n.u*W,my-n.v*H)/W));
+    }
+  }
+});
+const endDrag=()=>{
+  if(drag && drag.dnode){
+    const n=drag.dnode;
+    if(n.offCanvas){
+      const i=dnodes.indexOf(n);
+      if(i>=0) dnodes.splice(i,1);
+      document.getElementById('status').textContent='Distortion node removed.';
+    }else{
+      // snap back inside if it ended just barely off
+      n.u=Math.min(1,Math.max(0,n.u));
+      n.v=Math.min(1,Math.max(0,n.v));
+      n.offCanvas=false;
+    }
+  }
+  drag=null; view.classList.remove('dragging');
+};
+view.addEventListener('pointerup',endDrag);
+view.addEventListener('pointercancel',endDrag);
+// double-click a distortion node to remove it
+view.addEventListener('dblclick',e=>{
+  if(recording) return;
+  const [mx,my]=canvasPos(e);
+  for(let i=dnodes.length-1;i>=0;i--){
+    const n=dnodes[i];
+    if(Math.abs(mx-n.u*W)<=14 && Math.abs(my-n.v*H)<=14){
+      dnodes.splice(i,1);
+      return;
+    }
+  }
+});
+
+// ---------- controls ----------
+document.getElementById('applySize').onclick=()=>{
+  const w=Math.min(3840,Math.max(40,+document.getElementById('w').value||1280));
+  const h=Math.min(2160,Math.max(40,+document.getElementById('h').value||720));
+  document.getElementById('w').value=w; document.getElementById('h').value=h;
+  resize(w,h);
+  syncPreset();
+};
+document.getElementById('preset').onchange=e=>{
+  const v=e.target.value;
+  if(!v) return;
+  const [pw,ph]=v.split('x').map(Number);
+  document.getElementById('w').value=pw;
+  document.getElementById('h').value=ph;
+  resize(pw,ph);
+};
+function syncPreset(){
+  const cur=W+'x'+H;
+  const sel=document.getElementById('preset');
+  sel.value=[...sel.options].some(o=>o.value===cur)?cur:'';
+}
+let exportBitrate=16e6; // default ~16 Mbps
+document.getElementById('quality').oninput=e=>{ exportBitrate=(+e.target.value)*1e6; };
+document.getElementById('pauseBtn').onclick=e=>{ paused=!paused; e.target.textContent=paused?'Resume':'Pause'; };
+document.getElementById('reseedBtn').onclick=()=>{ seedDots(document.getElementById('seed').value||'0'); updateMatrix(); };
+document.getElementById('randomBtn').onclick=()=>{
+  const s=Math.floor(Math.random()*1e6).toString();
+  document.getElementById('seed').value=s;
+  seedDots(s); updateMatrix();
+};
+document.getElementById('tileSnap').onchange=e=>{ tileSnap=e.target.checked; updateMatrix(); };
+document.getElementById('mirrorSnapGrid').onchange=e=>{ mirrorSnapGrid=e.target.checked; };
+document.getElementById('mirrorSnapAngle').onchange=e=>{ mirrorSnapAngle=e.target.checked; };
+document.getElementById('radial').oninput=e=>{ radialMix=+e.target.value; };
+document.getElementById('sharp').oninput=e=>{ sharpness=+e.target.value; };
+document.getElementById('loopSec').onchange=e=>{
+  loopMs=Math.min(30,Math.max(1,+e.target.value||4))*1000;
+};
+
+// ---------- export helpers ----------
+const webmBtn=document.getElementById('webmBtn'), gifBtn=document.getElementById('gifBtn'),
+      prog=document.getElementById('prog'), progBar=document.getElementById('progBar'),
+      status=document.getElementById('status'),
+      resultwrap=document.getElementById('resultwrap'), vidPrev=document.getElementById('vidPrev'),
+      tiled=document.getElementById('tiled'), resultNote=document.getElementById('resultNote');
+let lastURL=null;
+function showResult(kind,url,note){
+  if(lastURL) URL.revokeObjectURL(lastURL);
+  lastURL=url;
+  resultwrap.style.display='block';
+  vidPrev.style.display = kind==='webm'?'block':'none';
+  tiled.style.display   = kind==='gif' ?'block':'none';
+  if(kind==='webm'){ vidPrev.src=url; vidPrev.play().catch(()=>{}); }
+  else{ tiled.style.backgroundImage='url('+url+')'; }
+  const name = kind==='webm'?'sinusoid-pattern.webm':'sinusoid-pattern.gif';
+  resultNote.innerHTML = note+' <a download="'+name+'" href="'+url+'">Download '+name+'</a>';
+}
+function setBusy(b){ webmBtn.disabled=b; gifBtn.disabled=b; prog.style.display=b?'block':'none'; if(b)progBar.style.width='0%'; }
+
+// ---------- WebM export ----------
+function pickMime(){
+  const mimes=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  return mimes.find(m=>window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+}
+
+const EXPORT_FPS = 60;
+const MATCH_TOL  = 3.0;   // mean abs RGB diff (0..255) below which a frame == frame 0. One step ~1.9.
+const OVER       = 20;    // frames to render past the expected period while hunting the match
+
+// ===================================================================================
+// Minimal WebM (Matroska/EBML) muxer for a single VP9 track. It writes EXACTLY the
+// encoded frames it's given, each with a fixed duration, so the file's frame count and
+// timing are whatever we hand it — no wall-clock capture, nothing dropped. Paired with
+// WebCodecs VideoEncoder (native VP9) below, this decouples rendering from encoding: the
+// encoder can take as long as it needs per 1080p frame and every frame still lands.
+// ===================================================================================
+function makeWebMWriter(width,height,fps,codecId){
+  const trackCodec=codecId||'V_VP9';
+  const frameDurUs=Math.round(1e6/fps);
+  const clusters=[];
+  function vint(value){
+    let len=1; for(; len<=8; len++){ if(value < (2**(7*len))-1) break; }
+    const b=new Uint8Array(len); let v=value;
+    for(let i=len-1;i>=0;i--){ b[i]=v&0xff; v=Math.floor(v/256); }
+    b[0]|=(1<<(8-len)); return b;
+  }
+  function uintB(value){ if(value===0) return new Uint8Array([0]);
+    const a=[]; let v=value; while(v>0){ a.unshift(v&0xff); v=Math.floor(v/256);} return new Uint8Array(a); }
+  function cat(arrs){ let n=0; for(const a of arrs)n+=a.length; const o=new Uint8Array(n); let p=0;
+    for(const a of arrs){o.set(a,p);p+=a.length;} return o; }
+  function el(id,payload){ return cat([new Uint8Array(id),vint(payload.length),payload]); }
+  function elU(id,v){ return el(id,uintB(v)); }
+  function elS(id,s){ return el(id,new TextEncoder().encode(s)); }
+  function elF(id,v){ const buf=new ArrayBuffer(8); new DataView(buf).setFloat64(0,v,false); return el(id,new Uint8Array(buf)); }
+  const frames=[]; // {data,keyframe,timeUs}
+  return {
+    add(uint8,keyframe,timeUs){ frames.push({data:uint8,keyframe,timeUs}); },
+    finish(){
+      const header=el([0x1A,0x45,0xDF,0xA3],cat([
+        elU([0x42,0x86],1), elU([0x42,0xF7],1), elU([0x42,0xF2],4), elU([0x42,0xF3],8),
+        elS([0x42,0x82],'webm'), elU([0x42,0x87],4), elU([0x42,0x85],2)
+      ]));
+      const info=el([0x15,0x49,0xA9,0x66],cat([
+        elU([0x2A,0xD7,0xB1],1000),                          // TimecodeScale: 1000ns => 1 tick = 1us
+        elF([0x44,0x89], frames.length*frameDurUs),          // Duration (us ticks)
+        elS([0x4D,0x80],'sinusoid'), elS([0x57,0x41],'sinusoid')
+      ]));
+      const videoEl=el([0xE0],cat([ elU([0xB0],width), elU([0xBA],height) ]));
+      const trackEntry=el([0xAE],cat([
+        elU([0xD7],1), elU([0x73,0xC5],1), elU([0x83],1), elU([0x9C],0),
+        elS([0x86],trackCodec), elU([0x23,0xE3,0x83],frameDurUs*1000), videoEl
+      ]));
+      const tracks=el([0x16,0x54,0xAE,0x6B],trackEntry);
+      const clusterEls=frames.map(fr=>{
+        const flags=fr.keyframe?0x80:0x00;
+        const hdr=new Uint8Array([0x81,0x00,0x00,flags]);    // track 1, rel tc 0, flags
+        const block=el([0xA3],cat([hdr,fr.data]));
+        return el([0x1F,0x43,0xB6,0x75],cat([ elU([0xE7],Math.round(fr.timeUs)), block ]));
+      });
+      const segment=el([0x18,0x53,0x80,0x67],cat([info,tracks,...clusterEls]));
+      return new Blob([header,segment],{type:'video/webm'});
+    }
+  };
+}
+
+function webCodecsAvailable(){
+  return typeof window.VideoEncoder==='function' && typeof window.VideoFrame==='function';
+}
+
+webmBtn.onclick=()=>{
+  if(recording) return;
+  if(webCodecsAvailable()){
+    exportLoopWebCodecs();
+  }else{
+    const mime=pickMime();
+    if(!mime){ status.textContent='This browser supports neither WebCodecs nor MediaRecorder — use a recent Chrome or Edge.'; return; }
+    exportLoop(mime);   // legacy MediaRecorder path (may drop frames at 1080p)
+  }
+};
+
+// Small offscreen canvas used to grab a downscaled thumbnail of each frame for fast,
+// noise-tolerant comparison against frame 0.
+const THUMB_W=160, THUMB_H=90;
+const thumbCan=document.createElement('canvas'); thumbCan.width=THUMB_W; thumbCan.height=THUMB_H;
+const thumbCtx=thumbCan.getContext('2d',{willReadFrequently:true});
+function grabThumb(){
+  thumbCtx.drawImage(glCan,0,0,THUMB_W,THUMB_H);
+  return thumbCtx.getImageData(0,0,THUMB_W,THUMB_H).data;
+}
+function meanAbsDiff(a,b){
+  let s=0,n=a.length;
+  for(let i=0;i<n;i+=4){ s+=Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2]); }
+  return s/((n/4)*3);
+}
+
+// Shared PASS-1 loop detection: render past Nexp, return the index that best repeats frame 0.
+function detectLoop(Nexp, onDone){
+  let frame0Thumb=null, bestDiff=1e9, bestIdx=Nexp;
+  const scanStart=Math.max(1,Nexp-OVER), scanEnd=Nexp+OVER;
+  status.textContent='Finding the exact loop point…';
+  function findLoop(i){
+    renderGL((i/Nexp)*TAU);
+    vctx.drawImage(glCan,0,0);
+    const th=grabThumb();
+    if(i===0) frame0Thumb=th.slice(0);
+    else if(i>=scanStart){
+      const d=meanAbsDiff(th,frame0Thumb);
+      if(d<bestDiff){ bestDiff=d; bestIdx=i; }
+    }
+    progBar.style.width=(Math.min(i/scanEnd,1)*35).toFixed(0)+'%';
+    if(i<scanEnd) requestAnimationFrame(()=>findLoop(i+1));
+    else onDone(bestIdx,bestDiff);
+  }
+  requestAnimationFrame(()=>findLoop(0));
+}
+
+// ---- WebCodecs export: guaranteed no dropped frames at any resolution ----
+async function exportLoopWebCodecs(){
+  const Nexp=Math.max(2,Math.round((loopMs/1000)*EXPORT_FPS));
+  setBusy(true);
+  recording={frameDriven:true};
+
+  detectLoop(Nexp, async (trueN,bestDiff)=>{
+    try{
+      // VP9 level must match the resolution/framerate or the encoder rejects the config.
+      // Levels are gated by max luma samples/sec and max picture size. Pick the lowest
+      // level that covers W×H×fps so 1440p and 4K are accepted.
+      function vp9Level(w,h,fps){
+        const rate=w*h*fps, size=w*h;
+        const T=[[10,829440,36864],[11,2764800,73728],[20,4608000,122880],
+                 [21,9216000,245760],[30,20736000,552960],[31,36864000,983040],
+                 [40,83558400,2228224],[41,160432128,2228224],[50,311951360,8912896],
+                 [51,588251136,8912896],[60,1176502272,35651584],[61,2353004544,35651584]];
+        for(const [lvl,mr,ms] of T){ if(rate<=mr && size<=ms) return lvl; }
+        return 62;
+      }
+      const lvl=vp9Level(W,H,EXPORT_FPS);
+      const cfg={ codec:'vp09.00.'+lvl+'.08', width:W, height:H, bitrate:exportBitrate, framerate:EXPORT_FPS, latencyMode:'quality' };
+      if(VideoEncoder.isConfigSupported){
+        const sup=await VideoEncoder.isConfigSupported(cfg);
+        if(!sup.supported){
+          status.textContent='Encoder can’t handle '+W+'×'+H+' at VP9 — trying VP8…';
+          cfg.codec='vp8';
+          const sup2=await VideoEncoder.isConfigSupported(cfg);
+          if(!sup2.supported){ throw new Error('no encoder supports '+W+'×'+H); }
+        }
+      }
+      const trackCodec = cfg.codec.indexOf('vp09')===0 || cfg.codec==='vp9' ? 'V_VP9' : 'V_VP8';
+      const writer=makeWebMWriter(W,H,EXPORT_FPS,trackCodec);
+      let encoded=0;
+      const encoder=new VideoEncoder({
+        output:(chunk,meta)=>{
+          const buf=new Uint8Array(chunk.byteLength);
+          chunk.copyTo(buf);
+          writer.add(buf, chunk.type==='key', chunk.timestamp);
+          encoded++;
+          progBar.style.width=(35+ (encoded/trueN)*60).toFixed(0)+'%';
+        },
+        error:(e)=>{ status.textContent='Encoder error: '+e.message; recording=null; setBusy(false); }
+      });
+      // Force periodic keyframes so the file is seekable and loops cleanly.
+      encoder.configure(cfg);
+
+      status.textContent='Encoding '+trueN+' frames at '+W+' × '+H+' (native VP9, no drops)…';
+      const frameDurUs=Math.round(1e6/EXPORT_FPS);
+      for(let i=0;i<trueN;i++){
+        renderGL((i/Nexp)*TAU);
+        vctx.drawImage(glCan,0,0);
+        const vf=new VideoFrame(glCan,{ timestamp:i*frameDurUs, duration:frameDurUs });
+        encoder.encode(vf, { keyFrame: (i % 60)===0 });   // periodic keyframes
+        vf.close();
+        // Apply light backpressure so the encode queue can't grow without bound at 1080p.
+        if(encoder.encodeQueueSize>8){ await new Promise(r=>setTimeout(r,0)); while(encoder.encodeQueueSize>4){ await new Promise(r=>setTimeout(r,0)); } }
+        else { await new Promise(r=>requestAnimationFrame(()=>r())); }
+      }
+      await encoder.flush();
+      encoder.close();
+
+      const blob=writer.finish();
+      const matchNote = bestDiff<MATCH_TOL ? 'exact frame-0 match' : 'closest match Δ='+bestDiff.toFixed(1);
+      showResult('webm',URL.createObjectURL(blob),
+        'Done — '+(blob.size/1048576).toFixed(1)+' MB · '+trueN+' frames · '+(trueN/EXPORT_FPS).toFixed(2)+' s @ 60 fps ('+matchNote+', native VP9).');
+      status.textContent='Loop-corrected WebM ready (no dropped frames). In OBS: Media Source → tick Loop.';
+      progBar.style.width='100%';
+      recording=null; setBusy(false);
+    }catch(err){
+      status.textContent='WebCodecs export failed ('+err.message+') — try the legacy path or a newer browser.';
+      recording=null; setBusy(false);
+    }
+  });
+}
+
+// ---- Legacy MediaRecorder export (fallback when WebCodecs is unavailable) ----
+function exportLoop(mime){
+  const Nexp=Math.max(2, Math.round((loopMs/1000)*EXPORT_FPS));
+  setBusy(true);
+  recording={frameDriven:true};
+  const stream=glCan.captureStream(0);
+  const track=stream.getVideoTracks()[0];
+  if(!track || typeof track.requestFrame!=='function'){ recording=null; exportRealtime(mime); return; }
+  const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:exportBitrate});
+  const chunks=[];
+  let trueN=Nexp, savedDiff=1e9;
+  rec.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+  rec.onstop=()=>{
+    stream.getTracks().forEach(tr=>tr.stop());
+    const blob=new Blob(chunks,{type:mime});
+    const matchNote = savedDiff<MATCH_TOL ? 'exact frame-0 match' : 'closest match Δ='+savedDiff.toFixed(1);
+    showResult('webm',URL.createObjectURL(blob),
+      'Done — '+(blob.size/1048576).toFixed(1)+' MB · '+trueN+' frames · '+(trueN/EXPORT_FPS).toFixed(2)+' s @ 60 fps ('+matchNote+').');
+    status.textContent='Loop-corrected WebM ready. In OBS: Media Source → tick Loop.';
+    progBar.style.width='100%';
+    recording=null; setBusy(false);
+  };
+  rec.onerror=e=>{ status.textContent='Recording error: '+e.error; recording=null; setBusy(false); };
+  detectLoop(Nexp,(bestIdx,bestDiff)=>{
+    trueN=bestIdx; savedDiff=bestDiff;
+    const stepMs=1000/EXPORT_FPS;
+    let i=0, last=0;
+    status.textContent='Recording '+trueN+' frames…';
+    rec.start();
+    function step(now){
+      if(now-last < stepMs){ requestAnimationFrame(step); return; }
+      last=now;
+      renderGL((i/Nexp)*TAU);
+      vctx.drawImage(glCan,0,0);
+      track.requestFrame();
+      progBar.style.width=(35+((i+1)/trueN)*60).toFixed(0)+'%';
+      i++;
+      if(i<trueN) requestAnimationFrame(step);
+      else setTimeout(()=>rec.stop(), stepMs*4);
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+// Fallback only: real-time capture of exactly one 2π period.
+function exportRealtime(mime){
+  setBusy(true);
+  const periodMs=loopMs;
+  status.textContent='Recording one full period ('+(periodMs/1000).toFixed(2)+' s) at '+W+' × '+H+'…';
+  const stream=glCan.captureStream(EXPORT_FPS);
+  const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:exportBitrate});
+  const chunks=[];
+  rec.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+  rec.onstop=()=>{
+    stream.getTracks().forEach(tr=>tr.stop());
+    const blob=new Blob(chunks,{type:mime});
+    showResult('webm',URL.createObjectURL(blob),
+      'Done — '+(blob.size/1048576).toFixed(1)+' MB · one full sinusoidal period ('+(periodMs/1000).toFixed(2)+' s).');
+    status.textContent='WebM ready. In OBS: Media Source → tick Loop.';
+    progBar.style.width='100%';
+    recording=null; setBusy(false);
+  };
+  rec.onerror=e=>{ status.textContent='Recording error: '+e.error; recording=null; setBusy(false); };
+  recording={start:performance.now(),recorder:rec,stopped:false,fps:EXPORT_FPS};
+  rec.start();
+}
+
+// ---------- GIF export ----------
+let workerURL=null;
+async function getWorker(){
+  if(workerURL) return workerURL;
+  const txt=await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js').then(r=>r.text());
+  workerURL=URL.createObjectURL(new Blob([txt],{type:'application/javascript'}));
+  return workerURL;
+}
+gifBtn.onclick=async()=>{
+  if(recording) return;
+  setBusy(true);
+  status.textContent='Loading encoder…';
+  try{
+    const ws=await getWorker();
+    const nFrames=Math.min(120,Math.max(8,+document.getElementById('frames').value||36));
+    const delay=Math.min(500,Math.max(20,+document.getElementById('delay').value||60));
+    const gif=new GIF({workers:3,quality:8,width:W,height:H,workerScript:ws,repeat:0});
+    const cap=document.createElement('canvas'); cap.width=W; cap.height=H;
+    const capCtx=cap.getContext('2d');
+    status.textContent='Capturing '+nFrames+' frames…';
+    for(let i=0;i<nFrames;i++){
+      renderGL((i/nFrames)*TAU);
+      capCtx.drawImage(glCan,0,0);
+      gif.addFrame(capCtx,{copy:true,delay:delay});
+      progBar.style.width=((i+1)/nFrames*50).toFixed(0)+'%';
+      await new Promise(r=>setTimeout(r,0));
+    }
+    status.textContent='Encoding…';
+    gif.on('progress',p=>{ progBar.style.width=(50+p*50).toFixed(0)+'%'; });
+    gif.on('finished',blob=>{
+      showResult('gif',URL.createObjectURL(blob),
+        'Done — '+(blob.size/1048576).toFixed(1)+' MB, '+nFrames+' frames @ '+delay+' ms.');
+      status.textContent='GIF ready.';
+      progBar.style.width='100%';
+      setBusy(false);
+    });
+    gif.render();
+  }catch(err){
+    status.textContent='Export failed: '+err.message;
+    setBusy(false);
+  }
+};
+
+// ---------- boot ----------
+resize(W,H);
+syncPreset();
+seedDots('1234');
+rebuildSwatches();
+rebuildNodes();
+updateMatrix();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
